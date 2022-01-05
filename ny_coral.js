@@ -1,3 +1,6 @@
+let canvasX = 500;
+let canvasY = 800;
+
 let land;
 let landR = 150;
 let landX = 250;
@@ -5,14 +8,16 @@ let landY = 250;
 let seaFloorLevel = 750;
 
 let seafloor;
-let numDrivers = 200;
+let numDrivers = 300;
 let drivers = [];
 let entities = [];
 
+let colorOptions = ['#8D5524', '#C68642', '#E0AC69', '#F1C27D', '#FFDBAC'];
+
 function setup(){
-	createCanvas(500,800);
+	createCanvas(canvasX,canvasY);
 	land = new LandCircle(landX,landY,landR,0,0.25);
-	seafloor = new SeaFloor(seaFloorLevel,500,800);
+	seafloor = new SeaFloor(seaFloorLevel,canvasX,canvasY);
 
 	for(i=0; i<numDrivers; i++){
 		let r = random(0,landR-10);
@@ -20,7 +25,8 @@ function setup(){
 		drivers.push(new Driver(r*cos(theta)+landX, 
 								r*sin(theta)+landY,
 								8,
-								seaFloorLevel,seaFloorLevel,
+								canvasX,
+								seaFloorLevel,
 								land));
 	}
 
@@ -28,12 +34,16 @@ function setup(){
 }
 
 function draw(){
-	background('white');
-//	background(0,0,244,70);
+	background('#91B8C4'); //78B2C4
 	entities.forEach((e) => {
 		e.update();
 		e.draw();
 	})
+
+	push();
+	fill('black');
+	circle(mouseX, mouseY, 20);
+	pop();
 }
 
 class SeaFloor {
@@ -45,6 +55,7 @@ class SeaFloor {
 
 	draw(){
 		push();
+		noStroke();
 		fill('grey');
 		rect(0,this.y, this.xMax, this.yMax);
 		pop();
@@ -109,15 +120,12 @@ class Driver {
 
 		this.land = landObj;
 
-		this.everOutside = false;
-		this.ticker = 0;
-		this.firstOutside = null;
+		this.state = 'CITY'; // CITY, FALL, CORAL
+		this.color = random(colorOptions);
 
-		this.isCoral = false; // is this part of a coral? 
 	}
 
 	applyForce(vec){
-		console.log(this.velocity);
 		this.velocity.add(vec);
 		this.velocity.x = constrain(this.velocity.x, -5,5);
 		this.velocity.y = constrain(this.velocity.y, -5,5);
@@ -138,47 +146,94 @@ class Driver {
 			);
 	}
 
-	update(){
-		if(!this.land.contains(this.pos)){ // off the land
-			
-			if(!this.everOutside){ // this is first time outside
-				this.applyForce(this.computeFirstForce());
-				this.everOutside = true;
-				this.isStatic = false;
-				this.firstOutside = this.ticker;
+	computeMouseForce(){
+		if(mouseX > 0 && mouseX < this.xMax && mouseY > 0 && mouseY < this.yMax){
+			let mousePos = createVector(mouseX, mouseY);
+			let diff = p5.Vector.sub(this.pos, mousePos);
+			if(diff.mag() > 100){
+				return createVector(0,0);
 			}
+			return(diff.normalize(1/((diff.mag())**2)));
+		} else{
+			return createVector(0,0);
+		}
+	}
+
+	update(){
+
+		if(this.state=='CITY'){ // you were city but now outside border
+
+			if(!this.land.contains(this.pos)){
+				this.applyForce(this.computeFirstForce()); // start 
+				this.state = 'FALL';
+			}
+
+		} else if(this.state == 'FALL'){
 
 			this.applyForce(this.computeGravityForce());
 			this.applyForce(this.computeWaterResistanceForce());
+			this.applyForce(this.computeMouseForce().mult(0.2));
+			this.pos.add(this.velocity);
+			this.applyPosBoundaries();
 
+			if(this.shouldBeCoral()){
+				this.state = 'CORAL';
+			}
+
+		} else if(this.state == 'CORAL'){
+			this.velocity = createVector(0,0);
 		}
 
-		this.pos.add(this.velocity);
-		this.applyPosBoundaries();
-		this.ticker = this.ticker + 1;
 	}
 
 	applyPosBoundaries(){
 		if(this.pos.x > this.xMax){
-			this.pos.x = this.xMax;
+			this.pos.x = 0;
 		}
 		if(this.pos.y > this.yMax){
 			this.pos.y = this.yMax;
 		}
 		if(this.pos.x < 0){
-			this.pos.x = 0;
+			this.pos.x = this.xMax;
 		}
 		if(this.pos.y < 0){
 			this.pos.y = 0;
 		}
 	}
 
+	shouldBeCoral(){
+		if(this.pos.y >= seaFloorLevel){
+			return true
+		} else if(this.closeToCoral()){
+			return true
+		} else{
+			return false;
+		}
+	}
+
+	closeToCoral(){
+		for(let j=0; j < drivers.length; j++){
+			if(drivers[j].getState()=='CORAL' && p5.Vector.dist(this.pos, drivers[j].getPos()) < this.size){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	getPos(){
+		return this.pos;
+	}
+
+	getState(){
+		return this.state;
+	}
+
 	draw(){
 		push();
 		noStroke();
 		fill(25,80);
-		if(this.everOutside){
-			fill(0,constrain(this.firstOutside*1.1,50,150),40,80);
+		if(this.state != 'CITY'){
+			fill(this.color);
 		}
 		circle(this.pos.x, this.pos.y, this.size);
 		pop();
